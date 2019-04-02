@@ -47,6 +47,8 @@ Display display;
 RTC_DS3231 rtc;
 
 ButtonHandler buttonHandler;
+WiFiManager wifiManager;
+
 
 void updateBrightness() {
   int b = analogRead(A0) / 4;
@@ -90,9 +92,9 @@ void setRTC() {
 }
 
 void setupWifi() {
-  WiFiManager wifiManager;
-  wifiManager.setConfigPortalTimeout(180);
-  wifiManager.autoConnect("VFD-Clock"); // Name of temporary access point
+  //wifiManager.setConfigPortalTimeout(180);
+  //wifiManager.autoConnect("VFD-Clock"); // Name of temporary access point
+  /*
   // Display IP
   if(WiFi.status()==WL_CONNECTED){
     IPAddress localIP=WiFi.localIP();
@@ -104,43 +106,39 @@ void setupWifi() {
       IPChars[i*4+6]='.';
     }
     server.begin();
-  }
+  }*/
 }
 
-void loadConfig(){ // Load the config from SPIFFS
-  if (SPIFFS.begin()) {
-    if (SPIFFS.exists("/config.json")) {
-      // File exists, reading and loading
-      File configFile=SPIFFS.open("/config.json","r");
-      if (configFile) {
-        size_t size=configFile.size();
-        std::unique_ptr<char[]> buf(new char[size]); // Buffer for config
-        configFile.readBytes(buf.get(), size);
-        DynamicJsonDocument doc(1024);
-        DeserializationError error=deserializeJson(doc, buf.get());
-        if (error) {
-          // Failed to load json config
-        }
-	else {
-          // List of params to load
-          int time_mode=doc["time_mode"];
-          int led_mode=doc["led_mode"];
-          display.setTimeMode((TIME_MODE)time_mode);
-          display.setLEDMode((LED_MODE)led_mode);
-        }
+void loadConfig() { // Load the config from SPIFFS
+  if (!SPIFFS.begin()) {
+    //Try to format the fs
+    if (!SPIFFS.format()) {
+      //Format failed, no SPIFFS available.
+      return;
+    }
+  }
+  if (SPIFFS.exists("/config.json")) {
+    // File exists, reading and loading
+    File configFile=SPIFFS.open("/config.json","r");
+    if (configFile) {
+      size_t size=configFile.size();
+      std::unique_ptr<char[]> buf(new char[size]); // Buffer for config
+      configFile.readBytes(buf.get(), size);
+      DynamicJsonDocument doc(1024);
+      if (!deserializeJson(doc, buf.get())) {
+        // List of params to load
+        int time_mode=doc["time_mode"];
+        int led_mode=doc["led_mode"];
+        display.setTimeMode((TIME_MODE)time_mode);
+        display.setLEDMode((LED_MODE)led_mode);
         configFile.close();
       }
-    } 
-    else {
-    // Failed to mount FS
     }
-    display.scrollMessage(IPChars, 16, 2);
   }
 }
 
 void saveConfig(){ // Save the config to SPIFFS
   DynamicJsonDocument doc(1024);
-
   // List of params to save
   TIME_MODE time_mode=display.getTimeMode();
   LED_MODE led_mode=display.getLEDMode();
@@ -152,7 +150,6 @@ void saveConfig(){ // Save the config to SPIFFS
   if (configFile){
     serializeJson(doc, configFile);
     configFile.close();
-    display.scrollMessage(IPChars, 16, 2);
   }
 }
 
@@ -169,12 +166,11 @@ void setup() {
   loadConfig(); // Needs to happen before the display is started
   display.begin();
   Wire.begin(D2,D1);
-  
+
   //Do some wifi magic config
   setupWifi();
 
-  uint8_t hello[] = {'H', 'E', 'L', 'L', 'O', '.', '.', '.'};
-  display.scrollMessage(hello, sizeof(hello), 4);
+  display.scrollMessage("HELLO...", 4);
 
   if (WiFi.status()==WL_CONNECTED) {
     setupOTA();
@@ -288,18 +284,18 @@ void handleButtonEvent(BUTTON_EVENT e) {
 }
 
 void handleWebServer(){
-  WiFiClient client=server.available();
-  if(client){ // If a new client connects
-    String header="";
-    String currentLine=""; // make a String to hold incoming data from the client
-    while(client.connected()){ // loop while the client's connected
-      if(client.available()){ // if there's bytes to read from the client,
-        char c=client.read(); // read a byte
-        header+=c;
-        if(c=='\n'){ // if the byte is a newline character
+  WiFiClient client = server.available();
+  if (client) { // If a new client connects
+    String header;
+    String currentLine; // make a String to hold incoming data from the client
+    while (client.connected()) { // loop while the client's connected
+      if (client.available()) { // if there's bytes to read from the client,
+        char c = client.read(); // read a byte
+        header += c;
+        if (c=='\n') { // if the byte is a newline character
           // if the current line is blank, you got two newline characters in a row
           // that's the end of the client HTTP request, so send a response
-          if(currentLine.length()==0){
+          if (currentLine.length()==0) {
             // act on http gets
             if (header.indexOf("GET /opt1/on") >= 0) {
             } else if (header.indexOf("GET /opt2/on") >= 0) {
@@ -348,7 +344,6 @@ void loop() {
      lastSec = t.second();
      display.displayTime(t);
   }
-
   updateBrightness();
   display.update();
   //Handle any button presses.

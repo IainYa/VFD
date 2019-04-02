@@ -57,21 +57,15 @@ void Display::displayTime(DateTime t) {
   }
   else {
      //Normal modes...
-     if (_timeMode == AMPM_MODE) {
-       if (t.hour() > 12) {
-         //If it's PM, dont display a 0 as first digit.
-         if ((t.hour() - 12 )/10 == 0) setTubeByte(7,0x00);
-         else setTubeNumber(7,1);
-         setTubeDP(0, true);
-         setTubeNumber(1, (t.hour()-12)%10);
-       }
-       else {
-         //24 HR clock mode.
-         setTubeNumber(0,t.hour()/10);
-         setTubeNumber(1,t.hour()%10);
-       }
+     if (_timeMode == AMPM_MODE && t.hour() > 12) {
+       //If it's PM, dont display a 0 as first digit.
+       if ((t.hour() - 12 )/10 == 0) setTubeByte(0,0x00);
+       else setTubeNumber(0,1);
+       setTubeDP(0, true);
+       setTubeNumber(1, (t.hour()-12)%10);
      }
-     else if (_timeMode == TWENTYFOURHR_MODE) {
+     else {
+       //Display as 24 hour mode.
        setTubeNumber(0,t.hour()/10);
        setTubeNumber(1,t.hour()%10);
      }
@@ -127,12 +121,12 @@ void Display::displayDate(DateTime t) {
       case DDMMYY_MODE:
         setTubeNumber(0, t.day()/10);
         setTubeNumber(1, t.day()%10);
-        setTubeNumber(2, t.month()/10);
-        setTubeNumber(3, t.month()%10);
+        setTubeNumber(3, t.month()/10);
+        setTubeNumber(4, t.month()%10);
         break;
       case MMDDYY_MODE:
-        setTubeNumber(2, t.day()/10);
-        setTubeNumber(3, t.day()%10);
+        setTubeNumber(3, t.day()/10);
+        setTubeNumber(4, t.day()%10);
         setTubeNumber(0, t.month()/10);
         setTubeNumber(1, t.month()%10);
       break;
@@ -155,8 +149,9 @@ void Display::displayInt(int x, int base) {
   }
 }
 
-void Display::scrollMessage(uint8_t *message, int length, int speed) {
+void Display::scrollMessage(char *message, int speed) {
   clear();
+  size_t length = strlen(message);
   for (int i=0; i<NUM_TUBES+length; i++) {
     for (int t=0; t<NUM_TUBES; t++)
     if (i+1-(NUM_TUBES-t)<0 or i+1-(NUM_TUBES-t)>=length) {
@@ -317,9 +312,18 @@ const LED_MODE Display::getLEDMode() {
 }
 
 void Display::test() {
-  //Set all tubes to display 8 to test all segments
-  memset(_displayData, 0xFF, NUM_TUBES);
+  clear();
   brightness = 255;
+  for (int i = 0; i < NUM_TUBES; ++i) {
+    for (int j=0; j<8; ++j) {
+      setTubeByte(i, 0x01<<j);
+      update();
+      delay(100);
+    }
+    setTubeByte(i, 0xFF);
+    update();
+  }
+  delay(1000);
 }
 
 void Display::setTubeByte(int tube, uint8_t b) {
