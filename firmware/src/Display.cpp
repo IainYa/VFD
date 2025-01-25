@@ -19,10 +19,16 @@
 
 #include "Display.h"
 
+extern "C" {
+  //We use this to turn off the brightness PWM while using FastLED
+  void stopWaveform(int);
+}
+
 Display::Display() {
 }
 
 Display::~Display() {
+
 }
 
 void Display::begin() {
@@ -44,12 +50,15 @@ void Display::begin() {
 
   //Full brightness.
   brightness = 255;
+
+  ledsOff = false;
+
   update();
 }
 
 void Display::displayTime(DateTime t) {
   clear();
-  if (_timeMode == EPOCH_MODE) {
+  if (configManager->data.disp_timeformat == EPOCH_MODE) {
        time_t epochtime = t.unixtime(); //!
        for (int i=0; i<8; i++) {
          setTubeNumber(NUM_TUBES - 1 - i, (epochtime>>(4*i)) & 0x0F);
@@ -57,7 +66,7 @@ void Display::displayTime(DateTime t) {
   }
   else {
      //Normal modes...
-     if (_timeMode == AMPM_MODE && t.hour() > 12) {
+     if (configManager->data.disp_timeformat == AMPM_MODE && t.hour() > 12) {
        //If it's PM, dont display a 0 as first digit.
        if ((t.hour() - 12 )/10 == 0) setTubeByte(0,0x00);
        else setTubeNumber(0,1);
@@ -85,13 +94,17 @@ void Display::displayTime(DateTime t) {
       setTubeNumber(7, t.second()%10);
     }
    }
-   if (_dashes && NUM_TUBES == 8 && ( _timeMode == TWENTYFOURHR_MODE || _timeMode == AMPM_MODE )) {
+   if (NUM_TUBES == 8 && ( configManager->data.disp_timeformat == TWENTYFOURHR_MODE || configManager->data.disp_timeformat == AMPM_MODE)) {
      if (t.second() %2 == 0) {
-       setTubeByte(2, 0x40);
-       setTubeByte(5, 0x40);
-     }
-     else {
-     //clear() will set these to blank anyway.
+       byte b = 0x00;
+       if (configManager->data.disp_separator == SEP_DASH) {
+         b = 0x40;
+       }
+       else if (configManager->data.disp_separator == SEP_DOUBLE_DASH) {
+         b = 0x09;
+       }
+       setTubeByte(2, b);
+       setTubeByte(5, b);
      }
    }
 }
@@ -99,7 +112,7 @@ void Display::displayTime(DateTime t) {
 void Display::displayDate(DateTime t) {
   clear();
   if (NUM_TUBES == 6) {
-    switch (_dateMode) {
+    switch (configManager->data.disp_dateformat) {
       case DDMMYY_MODE:
         setTubeNumber(0, t.day()/10);
         setTubeNumber(1, t.day()%10);
@@ -117,7 +130,10 @@ void Display::displayDate(DateTime t) {
     setTubeNumber(5, (t.year()-2000)%10);
   }
   else if (NUM_TUBES ==8) {
-    switch (_dateMode) {
+    setTubeByte(2, 0x40);
+    setTubeByte(5, 0x40);
+
+    switch (configManager->data.disp_dateformat) {
       case DDMMYY_MODE:
         setTubeNumber(0, t.day()/10);
         setTubeNumber(1, t.day()%10);
@@ -149,7 +165,7 @@ void Display::displayInt(int x, int base) {
   }
 }
 
-void Display::scrollMessage(char *message, int speed) {
+void Display::scrollMessage(const char *message, int speed) {
   clear();
   size_t length = strlen(message);
   for (int i=0; i<NUM_TUBES+length; i++) {
@@ -177,83 +193,113 @@ void Display::blank() {
   digitalWrite(LATCH_PIN, HIGH);
 }
 
-void Display::update() {
-  // Calculate the new data for the LEDs.
-  static long lastLEDUpdate = millis();
-
-  bool ledRefreshNeeded = false;
-
-  //If we're due an LED update, update the animation.
-  if (millis() > lastLEDUpdate + LED_ANIMATION_STEPTIME) {
-
-    lastLEDUpdate = millis();
-    ledRefreshNeeded = true;
-
-
-    switch (_ledMode) {
-      case RAINBOW_MODE:
-        rainbow_counter++;
-        fill_rainbow(leds, NUM_LEDS, rainbow_counter, 255/NUM_LEDS);
-        break;
-      case COL_PER_NUM_MODE:
-        for (int i = 0; i < NUM_TUBES; ++i) {
-          leds[i].setHue(25 * getTubeNumber(i)); //255 / 10 digits - sorry, no extra colors for hex...
-        }
-        break;
-      case COL_BY_TIME_MODE:
-        if (NUM_TUBES == 6) {
-          uint8_t hue;
-          // 24hr based colour regardless of time display mode
-	        hue  = (getTubeNumber(0) * 10 + getTubeNumber(1)) * 10;
-          leds[0].setHue(hue);
-          leds[1].setHue(hue);
-          hue = (getTubeNumber(2) * 10 + getTubeNumber(3)) * 4;
-          leds[2].setHue(hue);
-          leds[3].setHue(hue);
-          hue = (getTubeNumber(4) * 10 + getTubeNumber(5)) * 4;
-          leds[4].setHue(hue);
-          leds[5].setHue(hue);
-        }
-	else if (NUM_TUBES == 8) {
-          uint8_t hue;
-	        hue  = (getTubeNumber(0) * 10 + getTubeNumber(1)) * 10;
-          leds[0].setHue(hue);
-          leds[1].setHue(hue);
-          leds[2] = CRGB::Black;
-          hue = (getTubeNumber(3) * 10 + getTubeNumber(4)) * 4;
-          leds[3].setHue(hue);
-          leds[4].setHue(hue);
-          leds[5] = CRGB::Black;
-          hue = (getTubeNumber(6) * 10 + getTubeNumber(7)) * 4;
-          leds[6].setHue(hue);
-          leds[7].setHue(hue);
-        }
-        break;
-      case STEALTH_MODE:
-        if (FastLED.getBrightness() > 0) {
-          LEDS.setBrightness(0); //All LEDs off
-          FastLED.show();
-        }
-        ledRefreshNeeded = false;
-        break;
-      default:
-        break;
-
-      //not implemented.
+void Display::fillLEDData() {
+  if (configManager->data.led_backlight == false) {
+    for (int i = 0; i < NUM_TUBES; ++i) {
+      leds[i] = CRGB::Black;
     }
+    return;
   }
+  //LEDs are enabled, generate the appropriate colour patterns.
+  static uint16_t rainbow_counter = 0;
 
+  switch (configManager->data.led_color_mode) {
+    case RAINBOW_MODE:
+      rainbow_counter++;
+      fill_rainbow(leds, NUM_LEDS, rainbow_counter, 255/NUM_LEDS);
+      break;
+    case COL_PER_NUM_MODE:
+      for (int i = 0; i < NUM_TUBES; ++i) {
+        leds[i].setHue(25 * getTubeNumber(i)); //255 / 10 digits - sorry, no extra colors for hex...
+      }
+      break;
+    case COL_BY_TIME_MODE:
+      if (NUM_TUBES == 6) {
+        uint8_t hue;
+        // 24hr based colour regardless of time display mode
+        hue  = (getTubeNumber(0) * 10 + getTubeNumber(1)) * 10;
+        leds[0].setHue(hue);
+        leds[1].setHue(hue);
+        hue = (getTubeNumber(2) * 10 + getTubeNumber(3)) * 4;
+        leds[2].setHue(hue);
+        leds[3].setHue(hue);
+        hue = (getTubeNumber(4) * 10 + getTubeNumber(5)) * 4;
+        leds[4].setHue(hue);
+        leds[5].setHue(hue);
+      }
+      else if (NUM_TUBES == 8) {
+        uint8_t hue;
+        hue  = (getTubeNumber(0) * 10 + getTubeNumber(1)) * 10;
+        leds[0].setHue(hue);
+        leds[1].setHue(hue);
+        leds[2] = CRGB::Black;
+        hue = (getTubeNumber(3) * 10 + getTubeNumber(4)) * 4;
+        leds[3].setHue(hue);
+        leds[4].setHue(hue);
+        leds[5] = CRGB::Black;
+        hue = (getTubeNumber(6) * 10 + getTubeNumber(7)) * 4;
+        leds[6].setHue(hue);
+        leds[7].setHue(hue);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+void Display::updateTubes() {
   //Push out the new digit data to the shift registers
   digitalWrite(LATCH_PIN, LOW);
   for (int i=0; i<NUM_TUBES; ++i) {
     shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, _displayData[NUM_TUBES - 1 - i]);
   }
   digitalWrite(LATCH_PIN, HIGH);
-
-  if (ledRefreshNeeded) FastLED.show();
 }
 
-void Display::setBrightness (uint8_t requestedBrightness) {
+void Display::updateLEDs() {
+  static bool updateNeeded = true;
+  //This little dance is needed to make the LEDs not flicker.
+  //Basically, we disable the PWM that does the dimming of the VFDs for the brief time of writing out
+  //the LED data, so FastLED doesn't get interrupted.
+  if (updateNeeded) {
+    stopWaveform(OE_PIN);
+    digitalWrite(OE_PIN, HIGH);
+    noInterrupts();
+    FastLED.show();
+    interrupts();
+    analogWrite(OE_PIN, 255 - brightness);
+  }
+
+  if (ledsOff) updateNeeded = false; //no further updates needed after this one.
+  else updateNeeded = true;
+}
+
+void Display::update() {
+
+  static unsigned long lastUpdate = -1;
+  // Calculate the new data for the LEDs.
+
+  //If we're due an LED update, update the animation.
+  if (millis() > (lastUpdate + LED_ANIMATION_STEPTIME)) {
+    lastUpdate = millis();
+
+    fillLEDData();
+    updateBrightness();
+
+    updateLEDs();
+    updateTubes();
+  }
+}
+
+void Display::setConfigManager(ConfigManager * mgr) {
+  configManager = mgr;
+}
+
+void Display::updateBrightness() {
+  int b = analogRead(A0) / 4;
+  if (b > 255) b = 255;  //In case b is 1024...
+  uint8_t requestedBrightness = 255 - b;
+
   static uint8_t lastBrightness = 0;
 
   if (requestedBrightness>200) requestedBrightness = 255; //full brightness
@@ -278,37 +324,20 @@ void Display::setBrightness (uint8_t requestedBrightness) {
   else {
     brightness = requestedBrightness;
   }
-
-  if (_ledMode != STEALTH_MODE) {
-    if (brightness > LEDS_OFF_BRIGHTNESS_CUTOFF) LEDS.setBrightness(brightness);
-    else LEDS.setBrightness(0);
-  }
-
   analogWrite(OE_PIN, 255 - brightness);
-}
 
-void Display::setTimeMode(TIME_MODE m) {
-  _timeMode = m;
-}
-
-void Display::setDateMode(DATE_MODE m) {
-  _dateMode = m;
-}
-
-void Display::setLEDMode(LED_MODE m) {
-  _ledMode = m;
-}
-
-const TIME_MODE Display::getTimeMode() {
-  return _timeMode;
-}
-
-const DATE_MODE Display::getDateMode() {
-  return _dateMode;
-}
-
-const LED_MODE Display::getLEDMode() {
-  return _ledMode;
+  //If the LEDs are supposed to dim, dim them.
+  if (configManager->data.led_autodim) {
+    if (brightness > LEDS_OFF_BRIGHTNESS_CUTOFF) {
+      LEDS.setBrightness(brightness);
+      ledsOff = false;
+    }
+    else {
+      //LEDs off, it's quite dark!
+      LEDS.setBrightness(0);
+      ledsOff = true;
+    }
+  }
 }
 
 void Display::test() {
@@ -317,11 +346,11 @@ void Display::test() {
   for (int i = 0; i < NUM_TUBES; ++i) {
     for (int j=0; j<8; ++j) {
       setTubeByte(i, 0x01<<j);
-      update();
+      updateTubes();
       delay(100);
     }
     setTubeByte(i, 0xFF);
-    update();
+    updateTubes();
   }
   delay(1000);
 }
@@ -334,8 +363,7 @@ void Display::setTubeNumber(int tube, uint8_t n ) {
   if (n < 10) {
     setTubeChar(tube, n+'0');
   }
-  else
-  {
+  else  {
     setTubeChar(tube, n-10+'A');
   }
 }
@@ -347,10 +375,6 @@ void Display::setTubeChar(int tube, char c) {
 void Display::setTubeDP(int tube, bool enabled) {
   if (enabled ) _displayData[tube] |= 0x80;
   else _displayData[tube] &= ~0x80;
-}
-
-void Display::enableDashes(bool b) {
-  _dashes = b;
 }
 
 const uint8_t Display::getTubeByte(int tube) {

@@ -22,31 +22,13 @@
 
 #define FASTLED_ALLOW_INTERRUPTS 0
 
-
-
 #include <FastLED.h>
 #include <Time.h>
 #include <Timezone.h>
 #include <RTClib.h>
+
 #include "Config.h"
-
-enum TIME_MODE {
-  TWENTYFOURHR_MODE,
-  AMPM_MODE,
-  EPOCH_MODE,
-};
-
-enum DATE_MODE {
-  DDMMYY_MODE,
-  MMDDYY_MODE,
-};
-
-enum LED_MODE {
-  RAINBOW_MODE,
-  COL_PER_NUM_MODE,
-  COL_BY_TIME_MODE,
-  STEALTH_MODE,
-};
+#include "ConfigManager.h"
 
 class Display {
   public:
@@ -55,6 +37,8 @@ class Display {
     ~Display();
 
     void begin();
+
+    void setConfigManager(ConfigManager *);
 
     //Higher level functions
     //Displays the current time on the tubes, using TIME_MODE format
@@ -66,24 +50,16 @@ class Display {
     void displayInt(int val);
 
     void hello(); //displays the word hello as a welcome message.
-    void scrollMessage(char *message, int speed);
+    void scrollMessage(const char *message, int speed);
 
     void clear(); //clears display and data
     void blank(); //clears the display, but doesnt clear data, so calling refreshDisplay will unblank it.
 
-    void setBrightness(uint8_t); //Sets the brightness of the tubes (and LEDs) - for the tubes, it uses PWM, for the LEDs it uses Fastled's setBrightness.
+    void setBrightness(); //Sets the brightness of the tubes (and LEDs) - for the tubes, it uses PWM, for the LEDs it uses Fastled's setBrightness.
 
-    void update(); //Updates the tubes and LEDs.
+    void update(); //The display's 'main loop'
 
-    void setTimeMode(TIME_MODE m);
-    void setDateMode(DATE_MODE m);
-    void setLEDMode(LED_MODE m);
-
-    void enableDashes(bool);
-
-    const TIME_MODE getTimeMode();
-    const DATE_MODE getDateMode();
-    const LED_MODE getLEDMode();
+    void updateTubes();
 
     void test(); //Lights all segments on all tubes
 
@@ -98,8 +74,14 @@ class Display {
     const char getTubeChar(int tube);
 
   private:
+    void fillLEDData();
+    void updateLEDs();
+    void updateBrightness();
+
+  ConfigManager *configManager;
+
   uint8_t brightness;
-  uint16_t rainbow_counter;
+  bool ledsOff;
   uint8_t _displayData[NUM_TUBES];
 
   CRGB leds[NUM_LEDS];
@@ -134,7 +116,7 @@ class Display {
     0x00,  // :
     0x00,  // ;
     0x00,  // <
-    0x48,  // =
+    0x09,  // =
     0x00,  // >
     0x53,  // ?
     0x00,  // @
@@ -200,12 +182,6 @@ class Display {
     0x30,  // |
     0x0F,  // }
   };
-
-  bool _dashes = false;
-
-  DATE_MODE _dateMode = DDMMYY_MODE;
-  TIME_MODE _timeMode = TWENTYFOURHR_MODE;
-  LED_MODE _ledMode = RAINBOW_MODE;
 };
 
 #endif
